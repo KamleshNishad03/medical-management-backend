@@ -389,8 +389,6 @@
 
 
 
-
-
 import express from "express";
 import dotenv from "dotenv";
 import cors from "cors";
@@ -414,29 +412,9 @@ import notificationRoutes from "./routes/notificationRoute.js";
 
 dotenv.config();
 
-/*
-|--------------------------------------------------------------------------
-| Database Connection
-|--------------------------------------------------------------------------
-*/
-
-await connectDB();
-
 const app = express();
 
-/*
-|--------------------------------------------------------------------------
-| Trust Proxy
-|--------------------------------------------------------------------------
-*/
-
 app.set("trust proxy", 1);
-
-/*
-|--------------------------------------------------------------------------
-| Security Middleware
-|--------------------------------------------------------------------------
-*/
 
 app.use(
   helmet({
@@ -448,31 +426,13 @@ app.use(compression());
 
 app.use(cookieParser());
 
-/*
-|--------------------------------------------------------------------------
-| Logging
-|--------------------------------------------------------------------------
-*/
-
 if (process.env.NODE_ENV !== "production") {
   app.use(morgan("dev"));
 }
 
-/*
-|--------------------------------------------------------------------------
-| Rate Limiting
-|--------------------------------------------------------------------------
-*/
-
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 300,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    success: false,
-    message: "Too many requests, please try again later.",
-  },
 });
 
 app.use(limiter);
@@ -484,82 +444,45 @@ app.use(limiter);
 */
 
 const allowedOrigins = [
-  process.env.CLIENT_URL,
   "http://localhost:5173",
   "https://medical-management-frontend.vercel.app",
 ];
 
+if (process.env.CLIENT_URL) {
+  allowedOrigins.push(process.env.CLIENT_URL);
+}
+
 app.use(
   cors({
     origin: function (origin, callback) {
-      // Postman / mobile apps / same-origin
-      if (!origin) {
-        return callback(null, true);
-      }
+      if (!origin) return callback(null, true);
 
       if (allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
 
-      return callback(new Error(`CORS blocked for origin: ${origin}`));
+      return callback(null, false);
     },
 
     credentials: true,
-
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-
-    allowedHeaders: [
-      "Origin",
-      "X-Requested-With",
-      "Content-Type",
-      "Accept",
-      "Authorization",
-    ],
   })
 );
-
-// important for preflight requests
-app.options("*", cors());
-
-/*
-|--------------------------------------------------------------------------
-| Body Parsers
-|--------------------------------------------------------------------------
-*/
 
 app.use(express.json({ limit: "10mb" }));
 
 app.use(express.urlencoded({ extended: true }));
-
-/*
-|--------------------------------------------------------------------------
-| Static Uploads
-|--------------------------------------------------------------------------
-*/
 
 app.use(
   "/uploads",
   express.static(path.join(process.cwd(), "uploads"))
 );
 
-/*
-|--------------------------------------------------------------------------
-| Health Route
-|--------------------------------------------------------------------------
-*/
-
 app.get("/", (req, res) => {
-  res.status(200).json({
+  res.json({
     success: true,
     message: "Medical Management API Running",
   });
 });
-
-/*
-|--------------------------------------------------------------------------
-| API Routes
-|--------------------------------------------------------------------------
-*/
 
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/medicines", medicineRoutes);
@@ -568,12 +491,6 @@ app.use("/api/v1/cart", cartRoutes);
 app.use("/api/v1/orders", orderRoutes);
 app.use("/api/v1/notifications", notificationRoutes);
 
-/*
-|--------------------------------------------------------------------------
-| 404 Handler
-|--------------------------------------------------------------------------
-*/
-
 app.use((req, res) => {
   res.status(404).json({
     success: false,
@@ -581,120 +498,44 @@ app.use((req, res) => {
   });
 });
 
-/*
-|--------------------------------------------------------------------------
-| Global Error Handler
-|--------------------------------------------------------------------------
-*/
-
 app.use((err, req, res, next) => {
-  console.error("Global Error:", err);
+  console.error(err);
 
-  res.status(err.status || 500).json({
+  res.status(500).json({
     success: false,
-    message:
-      process.env.NODE_ENV === "production"
-        ? "Internal Server Error"
-        : err.message,
+    message: err.message || "Internal Server Error",
   });
 });
 
-/*
-|--------------------------------------------------------------------------
-| Create HTTP Server
-|--------------------------------------------------------------------------
-*/
-
 const server = http.createServer(app);
-
-/*
-|--------------------------------------------------------------------------
-| Socket.IO Setup
-|--------------------------------------------------------------------------
-*/
 
 export const io = new Server(server, {
   cors: {
     origin: allowedOrigins,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
     credentials: true,
   },
-
-  transports: ["websocket", "polling"],
-
-  pingTimeout: 60000,
 });
-
-/*
-|--------------------------------------------------------------------------
-| Socket Events
-|--------------------------------------------------------------------------
-*/
 
 io.on("connection", (socket) => {
-  console.log(`🟢 Socket connected: ${socket.id}`);
-
-  socket.on("joinUserRoom", (userId) => {
-    socket.join(`user_${userId}`);
-  });
-
-  socket.on("leaveUserRoom", (userId) => {
-    socket.leave(`user_${userId}`);
-  });
-
-  socket.on("joinAdminRoom", () => {
-    socket.join("admin_global");
-  });
-
-  socket.on("leaveAdminRoom", () => {
-    socket.leave("admin_global");
-  });
-
-  socket.on("joinOrderRoom", (orderId) => {
-    socket.join(orderId);
-  });
-
-  socket.on("leaveOrderRoom", (orderId) => {
-    socket.leave(orderId);
-  });
+  console.log("Socket connected:", socket.id);
 
   socket.on("disconnect", () => {
-    console.log(`🔴 Socket disconnected: ${socket.id}`);
+    console.log("Socket disconnected:", socket.id);
   });
 });
-
-/*
-|--------------------------------------------------------------------------
-| Start Server
-|--------------------------------------------------------------------------
-*/
 
 const PORT = process.env.PORT || 5000;
 
-server.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
+const startServer = async () => {
+  try {
+    await connectDB();
 
-/*
-|--------------------------------------------------------------------------
-| Graceful Shutdown
-|--------------------------------------------------------------------------
-*/
+    server.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+    });
+  } catch (error) {
+    console.log("Server start error:", error);
+  }
+};
 
-process.on("SIGTERM", () => {
-  console.log("SIGTERM received. Shutting down gracefully.");
-
-  server.close(() => {
-    console.log("Process terminated.");
-    process.exit(0);
-  });
-});
-
-process.on("SIGINT", () => {
-  console.log("SIGINT received. Shutting down gracefully.");
-
-  server.close(() => {
-    console.log("Process terminated.");
-    process.exit(0);
-  });
-});
+startServer();
