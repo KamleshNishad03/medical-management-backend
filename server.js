@@ -443,9 +443,15 @@ app.use(limiter);
 |--------------------------------------------------------------------------
 */
 
+// const allowedOrigins = [
+//   "http://localhost:5173",
+//   "https://medical-management-frontend.vercel.app",
+// ];
 const allowedOrigins = [
   "http://localhost:5173",
   "https://medical-management-frontend.vercel.app",
+  "https://www.apanacare.com",  // add karo
+  "https://apanacare.com",      // add karo
 ];
 
 if (process.env.CLIENT_URL) {
